@@ -13,6 +13,17 @@ const { getRdpMetrics } = require('./lib/rdpserver');
 
 // Strip trailing slash so redirects like base + '/dashboard' are always clean
 const base = (config.basePath || '').replace(/\/$/, '');
+
+// Normalize config into grouped format: [{displayName, servers:[{hostname,label}]}]
+// Handles: new grouped format, flat array (intermediate), legacy single rdpServer object
+function normalizeRdpConfig() {
+  const raw = config.rdpServers || (config.rdpServer ? [config.rdpServer] : []);
+  return raw.map((entry) => {
+    if (entry.servers) return entry; // already grouped
+    return { displayName: entry.displayName || entry.hostname, servers: [{ hostname: entry.hostname, label: entry.hostname }] };
+  });
+}
+const rdpGroups = normalizeRdpConfig();
 const baseHref = base ? base + '/' : '/';
 
 function sendHtml(res, filename) {
@@ -36,18 +47,22 @@ const status = {
     checkedAt: null,
     error: null,
   })),
-  rdpServer: {
-    hostname: config.rdpServer.hostname,
-    displayName: config.rdpServer.displayName || config.rdpServer.hostname,
+  rdpServers: rdpGroups.map((group) => ({
+    displayName: group.displayName,
     state: 'pending',
-    cpuPercent: null,
-    totalMemoryMB: null,
-    usedMemoryMB: null,
-    activeSessions: null,
-    disconnectedSessions: null,
-    checkedAt: null,
-    error: null,
-  },
+    servers: group.servers.map((s) => ({
+      hostname: s.hostname,
+      label: s.label || s.hostname,
+      state: 'pending',
+      cpuPercent: null,
+      totalMemoryMB: null,
+      usedMemoryMB: null,
+      activeSessions: null,
+      disconnectedSessions: null,
+      checkedAt: null,
+      error: null,
+    })),
+  })),
   nextCheckAt: null,
   checkIntervalSeconds: config.checkIntervalSeconds || 60,
 };
@@ -127,17 +142,19 @@ async function runChecks() {
     })
   );
 
-  const rdpCheck =
-    config.rdpServer.enabled
-      ? getRdpMetrics(config.rdpServer.hostname).then((result) => {
-          status.rdpServer = {
-            ...result,
-            displayName: config.rdpServer.displayName || config.rdpServer.hostname,
-          };
-        })
-      : Promise.resolve();
+  const rdpChecks = rdpGroups.flatMap((group, gi) =>
+    group.servers.map((s, si) =>
+      getRdpMetrics(s.hostname).then((result) => {
+        status.rdpServers[gi].servers[si] = { ...result, label: s.label || s.hostname };
+        // Derive group-level state from individual servers
+        const states = status.rdpServers[gi].servers.map((sv) => sv.state);
+        status.rdpServers[gi].state = states.every((st) => st === 'up') ? 'up'
+          : states.some((st) => st === 'up') ? 'warn' : 'down';
+      })
+    )
+  );
 
-  await Promise.allSettled([...siteChecks, rdpCheck]);
+  await Promise.allSettled([...siteChecks, ...rdpChecks]);
 
   const intervalMs = (config.checkIntervalSeconds || 60) * 1000;
   status.nextCheckAt = new Date(Date.now() + intervalMs).toISOString();
@@ -164,7 +181,5 @@ app.listen(port, () => {
   }
   console.log(`WebStatus running at http://localhost:${port}`);
   console.log(`Checking ${config.sites.length} site(s) every ${config.checkIntervalSeconds}s`);
-  if (config.rdpServer.enabled) {
-    console.log(`RDP server: ${config.rdpServer.hostname}`);
-  }
+  rdpGroups.forEach((g) => console.log(`RDP group: ${g.displayName} (${g.servers.map((s) => s.hostname).join(', ')})`));
 });

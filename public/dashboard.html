@@ -29,8 +29,8 @@
       <div class="spinner"></div>
     </div>
 
-    <p class="section-heading" id="serverHeading" style="display:none">RDP Server</p>
-    <div id="serverCard"></div>
+    <p class="section-heading" id="serversHeading" style="display:none">Servers</p>
+    <div id="serverCards"></div>
 
   </main>
 
@@ -112,78 +112,79 @@
     document.getElementById('sitesGrid').innerHTML = html;
   }
 
-  function renderServer(rdp) {
-    const heading = document.getElementById('serverHeading');
-    const card = document.getElementById('serverCard');
+  function renderServerRow(s) {
+    if (s.state === 'down' || s.state === 'pending') {
+      return `
+        <div class="server-row">
+          <span class="server-row-label">${esc(s.label)}</span>
+          <span class="server-row-error" colspan="3">${s.state === 'pending' ? 'Checking…' : esc(s.error ?? 'Unreachable')}</span>
+        </div>`;
+    }
+    const cpuPct = s.cpuPercent ?? 0;
+    const ramPct = s.totalMemoryMB ? Math.round((s.usedMemoryMB / s.totalMemoryMB) * 100) : 0;
+    return `
+      <div class="server-row">
+        <span class="server-row-label">${esc(s.label)}</span>
+        <div class="server-row-metric">
+          <div class="bar-track"><div class="bar-fill ${barClass(cpuPct)}" style="width:${cpuPct}%"></div></div>
+          <span class="row-metric-text">${cpuPct}%</span>
+        </div>
+        <div class="server-row-metric">
+          <div class="bar-track"><div class="bar-fill ${barClass(ramPct)}" style="width:${ramPct}%"></div></div>
+          <span class="row-metric-text">${fmtMB(s.usedMemoryMB)} / ${fmtMB(s.totalMemoryMB)}</span>
+        </div>
+        <span class="server-row-sessions">
+          <span class="sess-active">${s.activeSessions ?? '—'}</span> active
+          &nbsp;·&nbsp;
+          <span class="sess-disc">${s.disconnectedSessions ?? '—'}</span> disc
+        </span>
+      </div>`;
+  }
 
-    if (!rdp || rdp.state === 'pending' && !rdp.checkedAt) {
+  function renderServerCard(group) {
+    const checkedAt = group.servers.map((s) => s.checkedAt).filter(Boolean).sort().pop();
+    return `
+      <div class="server-card">
+        <div class="server-header">
+          <div>
+            <div class="server-name">${esc(group.displayName)}</div>
+            <div class="server-hostname">checked ${timeAgo(checkedAt)}</div>
+          </div>
+          ${stateBadge(group.state ?? 'pending')}
+        </div>
+        <div class="server-row-header">
+          <span></span>
+          <span>CPU</span>
+          <span>RAM</span>
+          <span>RDP Sessions</span>
+        </div>
+        <div class="server-rows">
+          ${group.servers.map(renderServerRow).join('')}
+        </div>
+      </div>`;
+  }
+
+  function renderServers(rdpServers) {
+    const heading = document.getElementById('serversHeading');
+    const container = document.getElementById('serverCards');
+
+    if (!rdpServers || rdpServers.length === 0) {
       heading.style.display = 'none';
-      card.innerHTML = '';
+      container.innerHTML = '';
+      return;
+    }
+
+    const allPending = rdpServers.every((g) =>
+      g.servers.every((s) => s.state === 'pending' && !s.checkedAt)
+    );
+    if (allPending) {
+      heading.style.display = 'none';
+      container.innerHTML = '';
       return;
     }
 
     heading.style.display = '';
-
-    if (rdp.state === 'down') {
-      card.innerHTML = `
-        <div class="server-card">
-          <div class="server-header">
-            <div>
-              <div class="server-name">${esc(rdp.displayName ?? rdp.hostname)}</div>
-              <div class="server-hostname">${esc(rdp.hostname)}</div>
-            </div>
-            ${stateBadge('down')}
-          </div>
-          <div class="server-error">${esc(rdp.error ?? 'Unable to reach server')}</div>
-        </div>`;
-      return;
-    }
-
-    const cpuPct  = rdp.cpuPercent ?? 0;
-    const ramPct  = rdp.totalMemoryMB ? Math.round((rdp.usedMemoryMB / rdp.totalMemoryMB) * 100) : 0;
-
-    card.innerHTML = `
-      <div class="server-card">
-        <div class="server-header">
-          <div>
-            <div class="server-name">${esc(rdp.displayName ?? rdp.hostname)}</div>
-            <div class="server-hostname">${esc(rdp.hostname)} &nbsp;·&nbsp; checked ${timeAgo(rdp.checkedAt)}</div>
-          </div>
-          ${stateBadge('up')}
-        </div>
-
-        <div class="server-metrics">
-          <div class="metric">
-            <div class="metric-label">CPU Usage</div>
-            <div class="metric-value">${cpuPct}%</div>
-            <div class="bar-track">
-              <div class="bar-fill ${barClass(cpuPct)}" style="width:${cpuPct}%"></div>
-            </div>
-          </div>
-
-          <div class="metric">
-            <div class="metric-label">Memory (RAM)</div>
-            <div class="metric-value">${fmtMB(rdp.usedMemoryMB)} <small>/ ${fmtMB(rdp.totalMemoryMB)}</small></div>
-            <div class="bar-track">
-              <div class="bar-fill ${barClass(ramPct)}" style="width:${ramPct}%"></div>
-            </div>
-          </div>
-
-          <div class="metric">
-            <div class="metric-label">Remote Desktop Sessions</div>
-            <div class="sessions-grid">
-              <div class="session-block">
-                <div class="session-count active">${rdp.activeSessions ?? '—'}</div>
-                <div class="session-label">Active</div>
-              </div>
-              <div class="session-block">
-                <div class="session-count disc">${rdp.disconnectedSessions ?? '—'}</div>
-                <div class="session-label">Disconnected</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>`;
+    container.innerHTML = rdpServers.map(renderServerCard).join('');
   }
 
   function renderBanner(sites) {
@@ -222,7 +223,7 @@
 
       renderBanner(data.sites);
       renderSites(data.sites);
-      renderServer(data.rdpServer);
+      renderServers(data.rdpServers);
 
       nextCheckAt = data.nextCheckAt ? new Date(data.nextCheckAt) : null;
       checkIntervalSeconds = data.checkIntervalSeconds || 60;
