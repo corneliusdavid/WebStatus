@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WebStatus Dashboard</title>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -13,7 +13,7 @@
     <span class="header-title">WebStatus</span>
     <div class="header-right">
       <span class="muted" id="nextCheck">Loading…</span>
-      <form method="POST" action="/logout" style="display:inline">
+      <form method="POST" action="logout" style="display:inline">
         <button class="btn-logout" type="submit">Sign out</button>
       </form>
     </div>
@@ -215,8 +215,8 @@
 
   async function poll() {
     try {
-      const res = await fetch('/api/status');
-      if (res.status === 401) { window.location.href = '/'; return; }
+      const res = await fetch('api/status');
+      if (res.status === 401) { window.location.href = './'; return; }
       if (!res.ok) return;
       const data = await res.json();
 

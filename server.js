@@ -11,6 +11,16 @@ const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const { checkSite } = require('./lib/checker');
 const { getRdpMetrics } = require('./lib/rdpserver');
 
+// Strip trailing slash so redirects like base + '/dashboard' are always clean
+const base = (config.basePath || '').replace(/\/$/, '');
+const baseHref = base ? base + '/' : '/';
+
+function sendHtml(res, filename) {
+  const html = fs.readFileSync(path.join(__dirname, 'public', filename), 'utf8');
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html.replace('<head>', `<head>\n  <base href="${baseHref}">`));
+}
+
 const app = express();
 
 // ── In-memory status state ──────────────────────────────────────────────────
@@ -58,21 +68,21 @@ app.use(
 function requireAuth(req, res, next) {
   if (req.session.authenticated) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Unauthorized' });
-  res.redirect('/');
+  res.redirect(base + '/');
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
-  if (req.session.authenticated) return res.redirect('/dashboard');
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  if (req.session.authenticated) return res.redirect(base + '/dashboard');
+  sendHtml(res, 'login.html');
 });
 
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
 
   if (username !== config.auth.username) {
-    return res.redirect('/?error=1');
+    return res.redirect(base + '/?error=1');
   }
 
   let valid = false;
@@ -85,19 +95,19 @@ app.post('/login', (req, res) => {
 
   if (valid) {
     req.session.authenticated = true;
-    res.redirect('/dashboard');
+    res.redirect(base + '/dashboard');
   } else {
-    res.redirect('/?error=1');
+    res.redirect(base + '/?error=1');
   }
 });
 
 app.post('/logout', (req, res) => {
   req.session.destroy();
-  res.redirect('/');
+  res.redirect(base + '/');
 });
 
 app.get('/dashboard', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+  sendHtml(res, 'dashboard.html');
 });
 
 app.get('/api/status', requireAuth, (req, res) => {
