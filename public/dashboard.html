@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebStatus Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="header">
+    <span class="header-title">WebStatus</span>
+    <div class="header-right">
+      <span class="muted" id="nextCheck">Loading…</span>
+      <form method="POST" action="/logout" style="display:inline">
+        <button class="btn-logout" type="submit">Sign out</button>
+      </form>
+    </div>
+  </header>
+
+  <!-- ── Main content ────────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <div id="statusBanner" class="status-banner pending">Checking…</div>
+
+    <p class="section-heading">Websites</p>
+    <div id="sitesGrid" class="sites-grid">
+      <div class="spinner"></div>
+    </div>
+
+    <p class="section-heading" id="serverHeading" style="display:none">RDP Server</p>
+    <div id="serverCard"></div>
+
+  </main>
+
+  <footer class="footer" id="footer"></footer>
+
+  <script>
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  function esc(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return '—';
+    const secs = Math.round((Date.now() - new Date(iso)) / 1000);
+    if (secs < 5)   return 'just now';
+    if (secs < 60)  return `${secs}s ago`;
+    if (secs < 120) return '1 min ago';
+    return `${Math.floor(secs / 60)} mins ago`;
+  }
+
+  function fmtMs(ms) {
+    if (ms == null) return '—';
+    if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${ms}ms`;
+  }
+
+  function fmtMB(mb) {
+    if (mb == null) return '—';
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${mb} MB`;
+  }
+
+  function barClass(pct) {
+    if (pct >= 85) return 'crit';
+    if (pct >= 65) return 'warn';
+    return 'ok';
+  }
+
+  function stateBadge(state) {
+    const labels = { up: 'Up', down: 'Down', warn: 'Bad Status', slow: 'Slow', pending: 'Checking…' };
+    return `<span class="state-badge ${esc(state)}">${labels[state] ?? esc(state)}</span>`;
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  function renderSites(sites) {
+    if (!sites || !sites.length) {
+      document.getElementById('sitesGrid').innerHTML = '<p style="color:var(--muted)">No sites configured.</p>';
+      return;
+    }
+
+    const html = sites.map((s) => {
+      const stateClass = `state-${s.state ?? 'pending'}`;
+      const errorHtml = s.error
+        ? `<div class="card-error">${esc(s.error)}</div>`
+        : '';
+
+      return `
+        <div class="site-card ${stateClass}">
+          <div class="card-top">
+            <span class="card-name">${esc(s.name)}</span>
+            ${stateBadge(s.state ?? 'pending')}
+          </div>
+          <div class="card-url">${esc(s.url)}</div>
+          <div class="card-meta">
+            <span>Status <strong>${s.statusCode != null ? s.statusCode : '—'}</strong></span>
+            <span>Response <strong>${fmtMs(s.responseTimeMs)}</strong></span>
+            <span>Checked <strong>${timeAgo(s.checkedAt)}</strong></span>
+          </div>
+          ${errorHtml}
+        </div>`;
+    }).join('');
+
+    document.getElementById('sitesGrid').innerHTML = html;
+  }
+
+  function renderServer(rdp) {
+    const heading = document.getElementById('serverHeading');
+    const card = document.getElementById('serverCard');
+
+    if (!rdp || rdp.state === 'pending' && !rdp.checkedAt) {
+      heading.style.display = 'none';
+      card.innerHTML = '';
+      return;
+    }
+
+    heading.style.display = '';
+
+    if (rdp.state === 'down') {
+      card.innerHTML = `
+        <div class="server-card">
+          <div class="server-header">
+            <div>
+              <div class="server-name">${esc(rdp.displayName ?? rdp.hostname)}</div>
+              <div class="server-hostname">${esc(rdp.hostname)}</div>
+            </div>
+            ${stateBadge('down')}
+          </div>
+          <div class="server-error">${esc(rdp.error ?? 'Unable to reach server')}</div>
+        </div>`;
+      return;
+    }
+
+    const cpuPct  = rdp.cpuPercent ?? 0;
+    const ramPct  = rdp.totalMemoryMB ? Math.round((rdp.usedMemoryMB / rdp.totalMemoryMB) * 100) : 0;
+
+    card.innerHTML = `
+      <div class="server-card">
+        <div class="server-header">
+          <div>
+            <div class="server-name">${esc(rdp.displayName ?? rdp.hostname)}</div>
+            <div class="server-hostname">${esc(rdp.hostname)} &nbsp;·&nbsp; checked ${timeAgo(rdp.checkedAt)}</div>
+          </div>
+          ${stateBadge('up')}
+        </div>
+
+        <div class="server-metrics">
+          <div class="metric">
+            <div class="metric-label">CPU Usage</div>
+            <div class="metric-value">${cpuPct}%</div>
+            <div class="bar-track">
+              <div class="bar-fill ${barClass(cpuPct)}" style="width:${cpuPct}%"></div>
+            </div>
+          </div>
+
+          <div class="metric">
+            <div class="metric-label">Memory (RAM)</div>
+            <div class="metric-value">${fmtMB(rdp.usedMemoryMB)} <small>/ ${fmtMB(rdp.totalMemoryMB)}</small></div>
+            <div class="bar-track">
+              <div class="bar-fill ${barClass(ramPct)}" style="width:${ramPct}%"></div>
+            </div>
+          </div>
+
+          <div class="metric">
+            <div class="metric-label">Remote Desktop Sessions</div>
+            <div class="sessions-grid">
+              <div class="session-block">
+                <div class="session-count active">${rdp.activeSessions ?? '—'}</div>
+                <div class="session-label">Active</div>
+              </div>
+              <div class="session-block">
+                <div class="session-count disc">${rdp.disconnectedSessions ?? '—'}</div>
+                <div class="session-label">Disconnected</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderBanner(sites) {
+    const banner = document.getElementById('statusBanner');
+    if (!sites || sites.every((s) => s.state === 'pending')) {
+      banner.className = 'status-banner pending';
+      banner.textContent = 'Running initial checks…';
+      return;
+    }
+    const down  = sites.filter((s) => s.state === 'down').length;
+    const warn  = sites.filter((s) => s.state === 'warn' || s.state === 'slow').length;
+    const total = sites.length;
+    if (down > 0) {
+      banner.className = 'status-banner has-issues';
+      banner.textContent = `⚠ ${down} of ${total} site${down !== 1 ? 's' : ''} down`;
+    } else if (warn > 0) {
+      banner.className = 'status-banner has-warnings';
+      banner.textContent = `${warn} site${warn !== 1 ? 's' : ''} reporting warnings`;
+    } else {
+      banner.className = 'status-banner all-ok';
+      banner.textContent = `All ${total} site${total !== 1 ? 's' : ''} operational`;
+    }
+  }
+
+  // ── Polling ────────────────────────────────────────────────────────────────
+
+  let nextCheckAt = null;
+  let checkIntervalSeconds = 60;
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/status');
+      if (res.status === 401) { window.location.href = '/'; return; }
+      if (!res.ok) return;
+      const data = await res.json();
+
+      renderBanner(data.sites);
+      renderSites(data.sites);
+      renderServer(data.rdpServer);
+
+      nextCheckAt = data.nextCheckAt ? new Date(data.nextCheckAt) : null;
+      checkIntervalSeconds = data.checkIntervalSeconds || 60;
+
+      document.getElementById('footer').textContent =
+        `Last fetched: ${new Date().toLocaleTimeString()}`;
+    } catch (err) {
+      console.error('Poll failed:', err);
+    }
+  }
+
+  function updateCountdown() {
+    const el = document.getElementById('nextCheck');
+    if (!nextCheckAt) { el.textContent = ''; return; }
+    const secs = Math.max(0, Math.round((nextCheckAt - Date.now()) / 1000));
+    if (secs === 0) {
+      el.textContent = 'Checking…';
+    } else {
+      el.textContent = `Next check in ${secs}s`;
+    }
+  }
+
+  // Poll API every 15 seconds (more frequent than server check interval so UI stays fresh)
+  setInterval(poll, 15000);
+  setInterval(updateCountdown, 1000);
+
+  poll(); // Initial fetch on page load
+  </script>
+</body>
+</html>

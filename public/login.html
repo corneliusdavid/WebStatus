@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebStatus – Login</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <h1>WebStatus</h1>
+    <p class="subtitle">Site &amp; server monitoring dashboard</p>
+
+    <div id="errorMsg" class="error-msg" style="display:none">
+      Invalid username or password.
+    </div>
+
+    <form method="POST" action="/login">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" autofocus required>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn-primary" type="submit">Sign in</button>
+    </form>
+  </div>
+
+  <script>
+    if (window.location.search.includes('error=1')) {
+      document.getElementById('errorMsg').style.display = 'block';
+    }
+  </script>
+</body>
+</html>

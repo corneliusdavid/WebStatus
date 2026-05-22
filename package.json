@@ -1,0 +1,15 @@
+{
+  "name": "webstatus",
+  "version": "1.0.0",
+  "description": "Web-based status dashboard for sites and RDP server monitoring",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "set-password": "node set-password.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0"
+  }
+}

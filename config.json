@@ -1,0 +1,27 @@
+{
+  "port": 3001,
+  "checkIntervalSeconds": 60,
+  "slowResponseThresholdMs": 3000,
+  "auth": {
+    "username": "admin",
+    "passwordHash": ""
+  },
+  "sessionSecret": "replace-with-a-long-random-string-here",
+  "rdpServer": {
+    "enabled": true,
+    "hostname": "YOUR-RDP-SERVER-HOSTNAME",
+    "displayName": "RDP Server"
+  },
+  "sites": [
+    {
+      "name": "Example Site",
+      "url": "https://example.com",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Another Site",
+      "url": "https://anothersite.com",
+      "expectedStatus": 200
+    }
+  ]
+}
