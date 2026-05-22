@@ -99,7 +99,7 @@
             <span class="card-name">${esc(s.name)}</span>
             ${stateBadge(s.state ?? 'pending')}
           </div>
-          <div class="card-url">${esc(s.url)}</div>
+          <div class="card-url"><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.url)}</a></div>
           <div class="card-meta">
             <span>Status <strong>${s.statusCode != null ? s.statusCode : '—'}</strong></span>
             <span>Response <strong>${fmtMs(s.responseTimeMs)}</strong></span>
