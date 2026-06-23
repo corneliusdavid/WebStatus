@@ -105,11 +105,52 @@ node set-password.js
 
 This hashes the password with bcrypt and saves it to `config.json`. Re-run any time you want to change the password; restart the server after.
 
-### 5. Run Node.js as a Windows Service
+### 5. Keep Node.js running across reboots
 
-The server must keep running after you close the terminal and survive reboots. Two options:
+The server must keep running after you close the terminal and survive reboots.
+Otherwise, after a reboot nothing listens on port 3001 and IIS returns **502 Bad
+Gateway** until you launch it by hand.
 
-**Option A — PM2 (recommended):**
+> **Note:** You cannot point `sc.exe create` / `New-Service` directly at `node.exe`.
+> A plain Node process doesn't speak to the Service Control Manager, so SCM kills
+> it at startup with *"the service did not respond in a timely fashion"* (error
+> 1053). You need either a scheduled task or a service wrapper.
+
+**Option A — Task Scheduler (recommended, fully native, nothing to download):**
+
+Run on the server, substituting your Node path, app folder, and domain account:
+```powershell
+$node = (Get-Command node).Source          # e.g. C:\Program Files\nodejs\node.exe
+$dir  = "C:\inetpub\webstatus"             # folder containing server.js
+
+$action  = New-ScheduledTaskAction -Execute $node -Argument "server.js" -WorkingDirectory $dir
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$settings = New-ScheduledTaskSettingsSet `
+  -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+  -StartWhenAvailable `
+  -ExecutionTimeLimit ([TimeSpan]::Zero) `        # no 3-day default kill
+  -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) `  # relaunch if it crashes
+  -MultipleInstances IgnoreNew
+
+Register-ScheduledTask -TaskName "WebStatus" `
+  -Action $action -Trigger $trigger -Settings $settings `
+  -User "DOMAIN\ServiceAccount" -Password "TheAccountPassword" `
+  -RunLevel Highest `
+  -Description "WebStatus Node backend, proxied by IIS on :3001"
+```
+Start it now (without rebooting) and verify — stop any manual `node server.js`
+first so port 3001 is free:
+```powershell
+Start-ScheduledTask -TaskName "WebStatus"
+Get-ScheduledTaskInfo -TaskName "WebStatus"      # LastTaskResult should be 0
+Invoke-WebRequest http://localhost:3001/ -UseBasicParsing | Select-Object StatusCode
+```
+
+**Option B — WinSW** (modern, maintained NSSM replacement; use if you want true
+service semantics with instant crash-restart): a single MIT-licensed `.exe` plus a
+small XML config — https://github.com/winsw/winsw
+
+**Option C — PM2:**
 ```
 npm install -g pm2
 pm2 start server.js --name webstatus
@@ -117,14 +158,10 @@ pm2 save
 pm2-startup install
 ```
 
-**Option B — NSSM (Non-Sucking Service Manager):**
-```
-nssm install WebStatus "C:\Program Files\nodejs\node.exe" "C:\inetpub\webstatus\server.js"
-nssm set WebStatus AppDirectory "C:\inetpub\webstatus"
-nssm start WebStatus
-```
-
-> **Important:** The service must run as a **domain account**, not Local System, so it has permission to query the RDP server over WinRM. Set this in Services → WebStatus → Properties → Log On, or via `nssm set WebStatus ObjectName DOMAIN\ServiceAccount`.
+> **Important:** Whichever you choose, it must run as a **domain account**, not
+> Local System, so it has permission to query the RDP server over WinRM. The
+> Task Scheduler `-User`/`-Password` pair above handles this (it runs whether
+> logged on or not, with real network credentials).
 
 ### 6. Configure IIS
 
